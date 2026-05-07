@@ -36,7 +36,7 @@ export function useAppLogs(initialAppName = fallbackApp): UseAppLogsState {
 
     try {
       const response = await appManagerApi.fetchApplicationLogs(appName)
-      setLogs(response.data.data.lines.map((line, index) => ({ id: `${appName}-${index}`, line })))
+      setLogs(response.data.lines.map((line: string, index: number) => ({ id: `${appName}-${index}`, line })))
       setError(null)
     } catch (err) {
       setError(err instanceof Error ? err.message : '加载日志失败')

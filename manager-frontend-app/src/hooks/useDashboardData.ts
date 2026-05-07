@@ -33,9 +33,9 @@ export function useDashboardData(): DashboardState {
           return
         }
 
-        setMetrics(dashboardRes.data.data.metrics)
-        setActivity(dashboardRes.data.data.activities)
-        setApplications(applicationsRes.data.data.items)
+        setMetrics(dashboardRes.data.metrics)
+        setActivity(dashboardRes.data.activities)
+        setApplications(applicationsRes.data.items)
         setError(null)
       } catch (err) {
         if (!alive) {

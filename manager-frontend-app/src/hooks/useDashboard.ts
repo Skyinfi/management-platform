@@ -28,8 +28,8 @@ export function useDashboard(): UseDashboardState {
           return
         }
 
-        setMetrics(response.data.data.metrics)
-        setActivity(response.data.data.activities)
+        setMetrics(response.data.metrics)
+        setActivity(response.data.activities)
         setError(null)
       } catch (err) {
         if (!alive) {
