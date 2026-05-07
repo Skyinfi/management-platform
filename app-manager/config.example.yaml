@@ -2,7 +2,7 @@ addr: ":8080"
 env: "production"
 log_level: "info"
 enable_cors: false
-jwt_secret: "${JWT_SECRET}"
+jwt_secret: "my-s3cr3t-k3y-ch4ng3-m3-2026"
 allow_origin: ""
 
 docker:
@@ -11,21 +11,42 @@ docker:
 
 auth:
   username: "admin"
-  password: "${ADMIN_PASSWORD}"
-  token_ttl: "24h"
+  password: "Str0ngP@ssw0rd!"
+  token_ttl: "8h"
 
 services:
+  - name: "nginx"
+    display: "Nginx 网关"
+    type: "process"
+    unit: "nginx"
+    endpoint: "0.0.0.0:80"
+    owner: "基础设施"
+
   - name: "order-service"
     display: "订单服务"
     type: "process"
     unit: "order-service"
-    endpoint: "10.0.1.12:9001"
+    log_path: "/var/log/order-service/app.log"
+    endpoint: "127.0.0.1:9001"
     owner: "交易团队"
 
   - name: "report-worker"
     display: "报表Worker"
     type: "process"
     unit: "report-worker"
-    log_path: "/var/log/report-worker/app.log"
     endpoint: "batch-only"
     owner: "数据团队"
+
+  - name: "mysql"
+    display: "MySQL 数据库"
+    type: "process"
+    unit: "mysql"
+    endpoint: "127.0.0.1:3306"
+    owner: "DBA"
+
+  - name: "redis"
+    display: "Redis 缓存"
+    type: "process"
+    unit: "redis"
+    endpoint: "127.0.0.1:6379"
+    owner: "DBA"

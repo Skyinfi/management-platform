@@ -82,6 +82,152 @@ cd app-manager
 go build -o app-manager ./cmd/app-manager
 ```
 
+## Docker 部署
+
+### 环境要求
+
+- Docker Engine 20.10+
+- Docker Compose v2（`docker compose` 命令可用）
+- 服务器已安装 Docker（需挂载 `/var/run/docker.sock`）
+
+### 1. 上传代码
+
+```bash
+git clone <repo-url> /opt/app-management-platform
+cd /opt/app-management-platform
+```
+
+### 2. 配置
+
+```bash
+# 环境变量
+cp .env.example .env
+vim .env
+```
+
+`.env` 内容：
+
+```
+JWT_SECRET=your-random-secret-key
+ADMIN_PASSWORD=your-strong-password
+```
+
+```bash
+# 后端服务配置
+cp app-manager/config.example.yaml app-manager/config.yaml
+vim app-manager/config.yaml
+```
+
+主要修改项：
+
+| 字段 | 说明 |
+|------|------|
+| `jwt_secret` | JWT 签名密钥，**必须修改**为随机长字符串 |
+| `auth.username` | 登录用户名 |
+| `auth.password` | 登录密码，**必须修改** |
+| `auth.token_ttl` | Token 有效期，如 `8h`、`24h` |
+| `docker.enabled` | 是否启用 Docker 容器管理 |
+| `services` | 要管理的 systemd 服务列表 |
+
+`services` 中每个服务：
+
+- `unit`：systemd unit 名称（`systemctl status xxx` 中的名称）
+- `log_path`：可选，日志文件路径（不填则用 `journalctl` 读取）
+- `endpoint`：仅展示用，标记服务监听地址
+
+### 3. 启动
+
+**使用 Nginx（默认）**
+
+```bash
+docker compose up -d --build
+```
+
+**使用 Caddy（自动 HTTPS）**
+
+```bash
+FRONTEND_DOCKERFILE=Dockerfile.caddy docker compose up -d --build
+```
+
+或在 `.env` 中设置：
+
+```
+FRONTEND_DOCKERFILE=Dockerfile.caddy
+```
+
+### 4. 验证
+
+```bash
+# 查看服务状态
+docker compose ps
+
+# 查看日志
+docker compose logs -f backend
+docker compose logs -f frontend
+
+# 健康检查
+curl http://localhost:8080/api/health
+```
+
+访问 `http://服务器IP` 打开管理面板，用 `.env` 中配置的用户名密码登录。
+
+### 5. 更新部署
+
+```bash
+git pull origin main
+docker compose up -d --build
+docker image prune -f
+```
+
+或使用脚本：
+
+```bash
+chmod +x scripts/update.sh
+./scripts/update.sh
+```
+
+### 6. 停止
+
+```bash
+docker compose down
+```
+
+### Caddy 启用 HTTPS
+
+编辑 `manager-frontend-app/Caddyfile`，将 `:80` 改为域名：
+
+```
+your-domain.com {
+    root * /srv
+    try_files {path} /index.html
+    file_server
+
+    reverse_proxy /api/* backend:8080
+    reverse_proxy /ws/* backend:8080 {
+        header_up Connection {>Connection}
+        header_up Upgrade {>Upgrade}
+    }
+}
+```
+
+Caddy 会自动申请并续期 Let's Encrypt 证书，确保服务器 80、443 端口对外开放。
+
+### 端口说明
+
+| 端口 | 服务 | 说明 |
+|------|------|------|
+| 80 | frontend | Nginx/Caddy 前端 |
+| 443 | frontend | Caddy HTTPS（仅 Caddy） |
+| 8080 | backend | Go API 服务 |
+
+### 注意事项
+
+- 后端容器挂载 `/var/run/docker.sock` 用于管理宿主机 Docker 容器
+- 进程管理（systemctl）需要后端以 root 权限运行，或配置 sudoers 白名单
+- 生产环境建议修改 `enable_cors: false`，由 Nginx/Caddy 统一处理跨域
+
+---
+
 ## 发布到 GitHub
 
 1. 在 GitHub 新建空仓库（不要勾选自动添加 README，避免首次推送冲突）。
