@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { appManagerApi } from '../api'
 import type { Application } from '../types'
-import { applications as mockApplications } from '../data/mockData'
 
 type UseApplicationsState = {
   loading: boolean
@@ -12,7 +11,7 @@ type UseApplicationsState = {
 export function useApplications(): UseApplicationsState {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [applications, setApplications] = useState<Application[]>(mockApplications)
+  const [applications, setApplications] = useState<Application[]>([])
 
   useEffect(() => {
     let alive = true

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { appManagerApi } from '../api'
 import type { ActivityItem, MetricItem } from '../types'
-import { activity as mockActivity, metrics as mockMetrics } from '../data/mockData'
 
 type UseDashboardState = {
   loading: boolean
@@ -13,8 +12,8 @@ type UseDashboardState = {
 export function useDashboard(): UseDashboardState {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [metrics, setMetrics] = useState<MetricItem[]>(mockMetrics)
-  const [activity, setActivity] = useState<ActivityItem[]>(mockActivity)
+  const [metrics, setMetrics] = useState<MetricItem[]>([])
+  const [activity, setActivity] = useState<ActivityItem[]>([])
 
   useEffect(() => {
     let alive = true
