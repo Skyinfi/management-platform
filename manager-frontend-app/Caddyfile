@@ -3,13 +3,13 @@
 }
 
 :80 {
-    root * /usr/share/nginx/html
+    root * /srv
     try_files {path} /index.html
     file_server
 
-    reverse_proxy /api/* backend:8080
+    reverse_proxy /api/* host.docker.internal:8080
 
-    reverse_proxy /ws/* backend:8080 {
+    reverse_proxy /ws/* host.docker.internal:8080 {
         header_up Connection {>Connection}
         header_up Upgrade {>Upgrade}
     }

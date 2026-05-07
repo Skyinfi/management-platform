@@ -6,10 +6,11 @@ services:
       context: ./app-manager
       dockerfile: Dockerfile
     restart: unless-stopped
-    ports:
-      - "8080:8080"
+    network_mode: host
+    pid: host
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - /run/systemd:/run/systemd
       - ./app-manager/config.yaml:/etc/app-manager/config.yaml:ro
     environment:
       - APP_MANAGER_CONFIG=/etc/app-manager/config.yaml
