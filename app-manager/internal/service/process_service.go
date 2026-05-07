@@ -279,21 +279,36 @@ func (p *ProcessService) DiscoverListeningProcesses(ctx context.Context) ([]mode
 		}
 	}
 
+	discovered := []model.DiscoveredProcess{}
 	if _, err := exec.LookPath("ss"); err == nil {
 		out, err := exec.CommandContext(ctx, "ss", "-H", "-ltnp").CombinedOutput()
 		if err == nil {
-			return p.discoverFromSSOutput(string(out), managedPIDs), nil
+			discovered = append(discovered, p.discoverFromSSOutput(string(out), managedPIDs)...)
+		}
+	}
+
+	if _, err := exec.LookPath("sudo"); err == nil {
+		out, err := exec.CommandContext(ctx, "sudo", "-n", "ss", "-H", "-ltnp").CombinedOutput()
+		if err == nil {
+			discovered = append(discovered, p.discoverFromSSOutput(string(out), managedPIDs)...)
 		}
 	}
 
 	if _, err := exec.LookPath("lsof"); err == nil {
 		out, err := exec.CommandContext(ctx, "lsof", "-nP", "-iTCP", "-sTCP:LISTEN").CombinedOutput()
 		if err == nil {
-			return p.discoverFromLSOFOutput(string(out), managedPIDs), nil
+			discovered = append(discovered, p.discoverFromLSOFOutput(string(out), managedPIDs)...)
 		}
 	}
 
-	return []model.DiscoveredProcess{}, nil
+	if _, err := exec.LookPath("sudo"); err == nil {
+		out, err := exec.CommandContext(ctx, "sudo", "-n", "lsof", "-nP", "-iTCP", "-sTCP:LISTEN").CombinedOutput()
+		if err == nil {
+			discovered = append(discovered, p.discoverFromLSOFOutput(string(out), managedPIDs)...)
+		}
+	}
+
+	return dedupeDiscoveredProcesses(discovered), nil
 }
 
 func (p *ProcessService) discoverFromSSOutput(output string, managedPIDs map[int]bool) []model.DiscoveredProcess {
@@ -350,12 +365,19 @@ func (p *ProcessService) discoveredFromSSLine(line string, managedPIDs map[int]b
 		return model.DiscoveredProcess{}, false
 	}
 
+	endpoint := fields[3]
 	pid := parseSSPID(line)
 	if pid <= 0 {
-		return model.DiscoveredProcess{}, false
+		return model.DiscoveredProcess{
+			ID:        discoveryID(0, endpoint),
+			Name:      "unknown",
+			Endpoint:  endpoint,
+			Protocol:  "tcp",
+			Command:   "权限不足，无法读取进程信息",
+			Adoptable: false,
+		}, true
 	}
 
-	endpoint := fields[3]
 	name := parseSSProcessName(line)
 	exePath := readProcLink(pid, "exe")
 	cwd := readProcLink(pid, "cwd")
@@ -379,7 +401,7 @@ func (p *ProcessService) discoveredFromSSLine(line string, managedPIDs map[int]b
 		Cwd:       cwd,
 		Managed:   managedPIDs[pid],
 		InDocker:  inDocker,
-		Adoptable: !managedPIDs[pid] && !inDocker && strings.HasPrefix(cwd, "/opt"),
+		Adoptable: isAdoptableProcess(managedPIDs[pid], inDocker, cwd, exePath, command),
 	}, true
 }
 
@@ -420,8 +442,39 @@ func (p *ProcessService) discoveredFromLSOFLine(line string, managedPIDs map[int
 		Cwd:       cwd,
 		Managed:   managedPIDs[pid],
 		InDocker:  inDocker,
-		Adoptable: !managedPIDs[pid] && !inDocker && strings.HasPrefix(cwd, "/opt"),
+		Adoptable: isAdoptableProcess(managedPIDs[pid], inDocker, cwd, exePath, command),
 	}, true
+}
+
+func dedupeDiscoveredProcesses(items []model.DiscoveredProcess) []model.DiscoveredProcess {
+	seen := map[string]bool{}
+	result := make([]model.DiscoveredProcess, 0, len(items))
+	for _, item := range items {
+		key := fmt.Sprintf("%d|%s", item.PID, item.Endpoint)
+		if item.PID == 0 {
+			key = item.Endpoint
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, item)
+	}
+	return result
+}
+
+func isAdoptableProcess(managed, inDocker bool, cwd, exePath, command string) bool {
+	if managed || inDocker {
+		return false
+	}
+	return hasOptPath(cwd) || hasOptPath(exePath) || hasOptPath(command)
+}
+
+func hasOptPath(value string) bool {
+	return value == "/opt" ||
+		strings.HasPrefix(value, "/opt/") ||
+		strings.Contains(value, " /opt/") ||
+		strings.Contains(value, "=/opt/")
 }
 
 func parseSSPID(line string) int {

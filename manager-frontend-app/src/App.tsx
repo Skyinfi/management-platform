@@ -19,6 +19,7 @@ function App() {
   const {
     loading: discoveryLoading,
     error: discoveryError,
+    scanned: discoveryScanned,
     discoveredProcesses,
     scanProcesses,
   } = useDiscoveredProcesses()
@@ -73,7 +74,7 @@ function App() {
                 {discoveryLoading ? '扫描中...' : '扫描端口'}
               </button>
             </div>
-            <DiscoveredProcessList processes={discoveredProcesses} />
+            <DiscoveredProcessList processes={discoveredProcesses} scanned={discoveryScanned} />
           </div>
           <div className="split-card" id="activity">
             <ActivityTimeline title="运维时间线" activities={activity} onSelectLogApp={(name) => void loadLogs(name)} />

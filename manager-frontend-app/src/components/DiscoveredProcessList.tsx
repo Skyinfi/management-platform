@@ -2,12 +2,13 @@ import type { DiscoveredProcess } from '../types'
 
 type Props = {
   processes: DiscoveredProcess[]
+  scanned: boolean
 }
 
-export function DiscoveredProcessList({ processes }: Props) {
+export function DiscoveredProcessList({ processes, scanned }: Props) {
   const unmanaged = processes.filter((item) => !item.managed && !item.inDocker)
 
-  if (processes.length === 0) {
+  if (!scanned) {
     return null
   }
 
@@ -18,8 +19,10 @@ export function DiscoveredProcessList({ processes }: Props) {
         <span>{processes.length} 个监听端口</span>
       </div>
 
-      {unmanaged.length === 0 ? (
-        <div className="empty-state">未发现新的宿主机监听进程</div>
+      {processes.length === 0 ? (
+        <div className="empty-state">扫描完成，未发现监听端口</div>
+      ) : unmanaged.length === 0 ? (
+        <div className="empty-state">扫描完成，未发现新的宿主机监听进程</div>
       ) : (
         unmanaged.map((item) => (
           <article key={item.id} className="discovery-item">
@@ -31,7 +34,7 @@ export function DiscoveredProcessList({ processes }: Props) {
             </div>
             <div className="discovery-meta">
               <span>{item.endpoint}</span>
-              <span>PID {item.pid}</span>
+              <span>{item.pid > 0 ? `PID ${item.pid}` : 'PID 未知'}</span>
               <span>{item.user || '未知用户'}</span>
             </div>
             <p title={item.command}>{item.command || item.exePath || item.cwd}</p>
