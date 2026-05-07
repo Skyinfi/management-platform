@@ -272,11 +272,6 @@ func (p *ProcessService) FindService(name string) (config.ServiceDef, bool) {
 }
 
 func (p *ProcessService) DiscoverListeningProcesses(ctx context.Context) ([]model.DiscoveredProcess, error) {
-	out, err := exec.CommandContext(ctx, "ss", "-H", "-ltnp").CombinedOutput()
-	if err != nil {
-		return nil, fmt.Errorf("scan listening ports with ss: %s: %w", strings.TrimSpace(string(out)), err)
-	}
-
 	managedPIDs := map[int]bool{}
 	for _, svc := range p.ListServices(ctx) {
 		if svc.PID > 0 {
@@ -284,9 +279,27 @@ func (p *ProcessService) DiscoverListeningProcesses(ctx context.Context) ([]mode
 		}
 	}
 
+	if _, err := exec.LookPath("ss"); err == nil {
+		out, err := exec.CommandContext(ctx, "ss", "-H", "-ltnp").CombinedOutput()
+		if err == nil {
+			return p.discoverFromSSOutput(string(out), managedPIDs), nil
+		}
+	}
+
+	if _, err := exec.LookPath("lsof"); err == nil {
+		out, err := exec.CommandContext(ctx, "lsof", "-nP", "-iTCP", "-sTCP:LISTEN").CombinedOutput()
+		if err == nil {
+			return p.discoverFromLSOFOutput(string(out), managedPIDs), nil
+		}
+	}
+
+	return []model.DiscoveredProcess{}, nil
+}
+
+func (p *ProcessService) discoverFromSSOutput(output string, managedPIDs map[int]bool) []model.DiscoveredProcess {
 	seen := map[string]bool{}
 	discovered := []model.DiscoveredProcess{}
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, line := range strings.Split(output, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -304,7 +317,31 @@ func (p *ProcessService) DiscoverListeningProcesses(ctx context.Context) ([]mode
 		discovered = append(discovered, item)
 	}
 
-	return discovered, nil
+	return discovered
+}
+
+func (p *ProcessService) discoverFromLSOFOutput(output string, managedPIDs map[int]bool) []model.DiscoveredProcess {
+	seen := map[string]bool{}
+	discovered := []model.DiscoveredProcess{}
+	for index, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || index == 0 {
+			continue
+		}
+
+		item, ok := p.discoveredFromLSOFLine(line, managedPIDs)
+		if !ok {
+			continue
+		}
+		key := fmt.Sprintf("%d|%s", item.PID, item.Endpoint)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		discovered = append(discovered, item)
+	}
+
+	return discovered
 }
 
 func (p *ProcessService) discoveredFromSSLine(line string, managedPIDs map[int]bool) (model.DiscoveredProcess, bool) {
@@ -335,6 +372,47 @@ func (p *ProcessService) discoveredFromSSLine(line string, managedPIDs map[int]b
 		Name:      name,
 		PID:       pid,
 		User:      processUser(pid),
+		Endpoint:  endpoint,
+		Protocol:  "tcp",
+		Command:   command,
+		ExePath:   exePath,
+		Cwd:       cwd,
+		Managed:   managedPIDs[pid],
+		InDocker:  inDocker,
+		Adoptable: !managedPIDs[pid] && !inDocker && strings.HasPrefix(cwd, "/opt"),
+	}, true
+}
+
+func (p *ProcessService) discoveredFromLSOFLine(line string, managedPIDs map[int]bool) (model.DiscoveredProcess, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 9 {
+		return model.DiscoveredProcess{}, false
+	}
+
+	pid, err := strconv.Atoi(fields[1])
+	if err != nil || pid <= 0 {
+		return model.DiscoveredProcess{}, false
+	}
+
+	name := fields[0]
+	userName := fields[2]
+	endpoint := strings.Join(fields[8:], " ")
+	endpoint = strings.TrimSuffix(endpoint, " (LISTEN)")
+	exePath := readProcLink(pid, "exe")
+	cwd := readProcLink(pid, "cwd")
+	command := readProcCmdline(pid)
+	inDocker := processInDocker(pid)
+
+	if command == "" {
+		command = name
+	}
+
+	id := discoveryID(pid, endpoint)
+	return model.DiscoveredProcess{
+		ID:        id,
+		Name:      name,
+		PID:       pid,
+		User:      userName,
 		Endpoint:  endpoint,
 		Protocol:  "tcp",
 		Command:   command,
