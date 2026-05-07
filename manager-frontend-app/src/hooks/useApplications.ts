@@ -25,7 +25,7 @@ export function useApplications(): UseApplicationsState {
           return
         }
 
-        setApplications(response.data.items)
+        setApplications(response.data.items ?? [])
         setError(null)
       } catch (err) {
         if (!alive) {
