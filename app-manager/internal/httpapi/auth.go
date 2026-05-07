@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/Skyinfi/app-manager/internal/model"
+	"github.com/Skyinfi/management-platform/app-manager/internal/model"
 )
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {

@@ -54,7 +54,7 @@ func Auth(validator JWTValidator) Middleware {
 
 func shouldSkipAuth(path string) bool {
 	switch path {
-	case "/api/health", "/api/auth/login", "/api/auth/me":
+	case "/api/health", "/api/auth/login":
 		return true
 	default:
 		return false

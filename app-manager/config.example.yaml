@@ -1,0 +1,31 @@
+addr: ":8080"
+env: "production"
+log_level: "info"
+enable_cors: false
+jwt_secret: "${JWT_SECRET}"
+allow_origin: ""
+
+docker:
+  enabled: true
+  host: "unix:///var/run/docker.sock"
+
+auth:
+  username: "admin"
+  password: "${ADMIN_PASSWORD}"
+  token_ttl: "24h"
+
+services:
+  - name: "order-service"
+    display: "订单服务"
+    type: "process"
+    unit: "order-service"
+    endpoint: "10.0.1.12:9001"
+    owner: "交易团队"
+
+  - name: "report-worker"
+    display: "报表Worker"
+    type: "process"
+    unit: "report-worker"
+    log_path: "/var/log/report-worker/app.log"
+    endpoint: "batch-only"
+    owner: "数据团队"

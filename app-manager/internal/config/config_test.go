@@ -30,4 +30,13 @@ func TestLoadDefaults(t *testing.T) {
 	if cfg.AllowOrigin != "*" {
 		t.Fatalf("expected default allow origin, got %q", cfg.AllowOrigin)
 	}
+	if cfg.Auth.Username != "admin" {
+		t.Fatalf("expected default username, got %q", cfg.Auth.Username)
+	}
+	if cfg.Auth.Password != "admin123" {
+		t.Fatalf("expected default password, got %q", cfg.Auth.Password)
+	}
+	if !cfg.Docker.Enabled {
+		t.Fatalf("expected docker enabled by default")
+	}
 }

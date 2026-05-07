@@ -1,0 +1,30 @@
+version: "3.9"
+
+services:
+  backend:
+    build:
+      context: ./app-manager
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./app-manager/config.yaml:/etc/app-manager/config.yaml:ro
+    environment:
+      - APP_MANAGER_CONFIG=/etc/app-manager/config.yaml
+      - APP_MANAGER_JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - APP_MANAGER_AUTH_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - APP_MANAGER_ADDR=:8080
+    env_file:
+      - .env
+
+  frontend:
+    build:
+      context: ./manager-frontend-app
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend

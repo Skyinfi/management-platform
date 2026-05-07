@@ -4,7 +4,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/Skyinfi/app-manager/internal/model"
+	"github.com/Skyinfi/management-platform/app-manager/internal/model"
 )
 
 type Store struct {
