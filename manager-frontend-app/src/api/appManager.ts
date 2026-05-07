@@ -4,6 +4,7 @@ import type {
   AppActionResponse,
   ApplicationLogResponse,
   DashboardResponse,
+  DiscoveredProcessListResponse,
   ListApplicationsResponse,
 } from './types'
 
@@ -14,4 +15,5 @@ export const appManagerApi = {
   stopApplication: (name: string) => apiClient.post<ApiResponse<AppActionResponse>>(`/applications/${name}/stop`),
   restartApplication: (name: string) => apiClient.post<ApiResponse<AppActionResponse>>(`/applications/${name}/restart`),
   fetchApplicationLogs: (name: string) => apiClient.get<ApiResponse<ApplicationLogResponse>>(`/applications/${name}/logs`),
+  discoverProcesses: () => apiClient.get<ApiResponse<DiscoveredProcessListResponse>>('/process/discovered'),
 }

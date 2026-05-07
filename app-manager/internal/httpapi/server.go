@@ -83,6 +83,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/docker/containers/", s.handleDockerContainerAction)
 	s.mux.HandleFunc("/api/docker/images", s.handleDockerImages)
 
+	s.mux.HandleFunc("/api/process/discovered", s.handleDiscoveredProcesses)
 	s.mux.HandleFunc("/api/process/services", s.handleProcessServices)
 	s.mux.HandleFunc("/api/process/services/", s.handleProcessServiceAction)
 
@@ -304,6 +305,25 @@ func (s *Server) handleProcessServices(w http.ResponseWriter, r *http.Request) {
 		Code:    0,
 		Message: "ok",
 		Data:    model.ServiceListResponse{Items: services},
+	})
+}
+
+func (s *Server) handleDiscoveredProcesses(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeJSON(w, http.StatusMethodNotAllowed, model.APIResponse{Code: 405, Message: "method not allowed"})
+		return
+	}
+
+	processes, err := s.process.DiscoverListeningProcesses(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, model.APIResponse{Code: 500, Message: err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, model.APIResponse{
+		Code:    0,
+		Message: "ok",
+		Data:    model.DiscoveredProcessListResponse{Items: processes},
 	})
 }
 

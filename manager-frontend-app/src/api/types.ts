@@ -1,4 +1,4 @@
-import type { ActivityItem, Application, MetricItem } from '../types'
+import type { ActivityItem, Application, DiscoveredProcess, MetricItem } from '../types'
 
 export type ApiResponse<T> = {
   code: number
@@ -23,4 +23,8 @@ export type AppActionResponse = {
 
 export type ApplicationLogResponse = {
   lines: string[]
+}
+
+export type DiscoveredProcessListResponse = {
+  items: DiscoveredProcess[]
 }

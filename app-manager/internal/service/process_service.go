@@ -3,12 +3,18 @@ package service
 import (
 	"bufio"
 	"context"
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"os/user"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/Skyinfi/management-platform/app-manager/internal/config"
@@ -19,6 +25,11 @@ type ProcessService struct {
 	services []config.ServiceDef
 	mu       sync.RWMutex
 }
+
+var (
+	ssPIDPattern  = regexp.MustCompile(`pid=(\d+)`)
+	ssNamePattern = regexp.MustCompile(`"([^"]+)"`)
+)
 
 func NewProcessService(services []config.ServiceDef) *ProcessService {
 	return &ProcessService{services: services}
@@ -258,6 +269,162 @@ func (p *ProcessService) FindService(name string) (config.ServiceDef, bool) {
 		}
 	}
 	return config.ServiceDef{}, false
+}
+
+func (p *ProcessService) DiscoverListeningProcesses(ctx context.Context) ([]model.DiscoveredProcess, error) {
+	out, err := exec.CommandContext(ctx, "ss", "-H", "-ltnp").CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("scan listening ports with ss: %s: %w", strings.TrimSpace(string(out)), err)
+	}
+
+	managedPIDs := map[int]bool{}
+	for _, svc := range p.ListServices(ctx) {
+		if svc.PID > 0 {
+			managedPIDs[svc.PID] = true
+		}
+	}
+
+	seen := map[string]bool{}
+	discovered := []model.DiscoveredProcess{}
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		item, ok := p.discoveredFromSSLine(line, managedPIDs)
+		if !ok {
+			continue
+		}
+		key := fmt.Sprintf("%d|%s", item.PID, item.Endpoint)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		discovered = append(discovered, item)
+	}
+
+	return discovered, nil
+}
+
+func (p *ProcessService) discoveredFromSSLine(line string, managedPIDs map[int]bool) (model.DiscoveredProcess, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 4 {
+		return model.DiscoveredProcess{}, false
+	}
+
+	pid := parseSSPID(line)
+	if pid <= 0 {
+		return model.DiscoveredProcess{}, false
+	}
+
+	endpoint := fields[3]
+	name := parseSSProcessName(line)
+	exePath := readProcLink(pid, "exe")
+	cwd := readProcLink(pid, "cwd")
+	command := readProcCmdline(pid)
+	inDocker := processInDocker(pid)
+
+	if name == "" {
+		name = processNameFromCommand(command, exePath)
+	}
+
+	id := discoveryID(pid, endpoint)
+	return model.DiscoveredProcess{
+		ID:        id,
+		Name:      name,
+		PID:       pid,
+		User:      processUser(pid),
+		Endpoint:  endpoint,
+		Protocol:  "tcp",
+		Command:   command,
+		ExePath:   exePath,
+		Cwd:       cwd,
+		Managed:   managedPIDs[pid],
+		InDocker:  inDocker,
+		Adoptable: !managedPIDs[pid] && !inDocker && strings.HasPrefix(cwd, "/opt"),
+	}, true
+}
+
+func parseSSPID(line string) int {
+	match := ssPIDPattern.FindStringSubmatch(line)
+	if len(match) != 2 {
+		return 0
+	}
+	pid, _ := strconv.Atoi(match[1])
+	return pid
+}
+
+func parseSSProcessName(line string) string {
+	match := ssNamePattern.FindStringSubmatch(line)
+	if len(match) != 2 {
+		return ""
+	}
+	return match[1]
+}
+
+func readProcLink(pid int, name string) string {
+	value, err := os.Readlink(fmt.Sprintf("/proc/%d/%s", pid, name))
+	if err != nil {
+		return ""
+	}
+	return value
+}
+
+func readProcCmdline(pid int) string {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+	if err != nil {
+		return ""
+	}
+	parts := strings.Split(strings.TrimRight(string(data), "\x00"), "\x00")
+	return strings.Join(parts, " ")
+}
+
+func processNameFromCommand(command, exePath string) string {
+	if command != "" {
+		fields := strings.Fields(command)
+		if len(fields) > 0 {
+			return fields[0]
+		}
+	}
+	if exePath != "" {
+		parts := strings.Split(strings.TrimRight(exePath, "/"), "/")
+		return parts[len(parts)-1]
+	}
+	return "unknown"
+}
+
+func processInDocker(pid int) bool {
+	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", pid))
+	if err != nil {
+		return false
+	}
+	value := string(data)
+	return strings.Contains(value, "docker") ||
+		strings.Contains(value, "containerd") ||
+		strings.Contains(value, "kubepods")
+}
+
+func processUser(pid int) string {
+	info, err := os.Stat(fmt.Sprintf("/proc/%d", pid))
+	if err != nil {
+		return ""
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return ""
+	}
+	uid := strconv.FormatUint(uint64(stat.Uid), 10)
+	u, err := user.LookupId(uid)
+	if err != nil {
+		return uid
+	}
+	return u.Username
+}
+
+func discoveryID(pid int, endpoint string) string {
+	sum := sha1.Sum([]byte(fmt.Sprintf("%d|%s", pid, endpoint)))
+	return hex.EncodeToString(sum[:8])
 }
 
 func (p *ProcessService) Applications(ctx context.Context) []model.Application {

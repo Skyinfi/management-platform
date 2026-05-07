@@ -2,11 +2,12 @@ import './App.css'
 import { ActivityTimeline } from './components/ActivityTimeline'
 import { ApplicationCards } from './components/ApplicationCards'
 import { ApplicationTable } from './components/ApplicationTable'
+import { DiscoveredProcessList } from './components/DiscoveredProcessList'
 import { HeroSection } from './components/HeroSection'
 import { LogSidebar } from './components/LogSidebar'
 import { LoginPage } from './components/LoginPage'
 import { Sidebar } from './components/Sidebar'
-import { useAppActions, useAppLogs, useApplications, useDashboard } from './hooks'
+import { useAppActions, useAppLogs, useApplications, useDashboard, useDiscoveredProcesses } from './hooks'
 import { useAuth } from './auth/useAuth'
 
 function App() {
@@ -15,9 +16,15 @@ function App() {
   const { applications, loading: applicationsLoading, error: applicationsError } = useApplications()
   const { pendingAction, actionError, runAction } = useAppActions()
   const { loading: logsLoading, error: logsError, selectedApp, logs, loadLogs } = useAppLogs()
+  const {
+    loading: discoveryLoading,
+    error: discoveryError,
+    discoveredProcesses,
+    scanProcesses,
+  } = useDiscoveredProcesses()
   const dockerApps = applications.filter((item) => item.type === 'Docker')
   const processApps = applications.filter((item) => item.type === 'Process')
-  const error = dashboardError ?? applicationsError ?? actionError
+  const error = dashboardError ?? applicationsError ?? actionError ?? discoveryError
   const loading = dashboardLoading || applicationsLoading
 
   if (!auth.ready) {
@@ -56,6 +63,17 @@ function App() {
               onStop={(name) => void runAction(name, 'stop')}
               onRestart={(name) => void runAction(name, 'restart')}
             />
+            <div className="discovery-actions">
+              <button
+                type="button"
+                className="secondary-btn"
+                disabled={discoveryLoading}
+                onClick={() => void scanProcesses()}
+              >
+                {discoveryLoading ? '扫描中...' : '扫描端口'}
+              </button>
+            </div>
+            <DiscoveredProcessList processes={discoveredProcesses} />
           </div>
           <div className="split-card" id="activity">
             <ActivityTimeline title="运维时间线" activities={activity} onSelectLogApp={(name) => void loadLogs(name)} />

@@ -15,6 +15,21 @@ export type Application = {
   updatedAt: string
 }
 
+export type DiscoveredProcess = {
+  id: string
+  name: string
+  pid: number
+  user: string
+  endpoint: string
+  protocol: string
+  command: string
+  exePath: string
+  cwd: string
+  managed: boolean
+  inDocker: boolean
+  adoptable: boolean
+}
+
 export type ActivityTone = 'success' | 'warning' | 'info' | 'muted'
 
 export type ActivityItem = {
