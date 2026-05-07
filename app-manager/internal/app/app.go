@@ -22,7 +22,10 @@ func Bootstrap(cfg config.Config) Dependencies {
 	dockerSvc := service.NewDockerService(cfg.Docker)
 	processSvc := service.NewProcessService(cfg.Services)
 	audit := service.NewAuditLog()
-	svc := service.New(st)
+	svc := service.New(st,
+		service.WithDocker(dockerSvc),
+		service.WithProcess(processSvc),
+	)
 
 	return Dependencies{
 		Store:   st,

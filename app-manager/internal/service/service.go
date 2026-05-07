@@ -32,8 +32,8 @@ func WithProcess(p *ProcessService) ServiceOption {
 	return func(s *Service) { s.process = p }
 }
 
-func (s *Service) Dashboard() model.DashboardResponse {
-	apps := s.Applications()
+func (s *Service) Dashboard(ctx context.Context) model.DashboardResponse {
+	apps := s.Applications(ctx)
 	return model.DashboardResponse{
 		Metrics:      buildMetrics(apps),
 		Activities:   s.store.ListActivities(),
@@ -41,19 +41,7 @@ func (s *Service) Dashboard() model.DashboardResponse {
 	}
 }
 
-func (s *Service) Applications() []model.Application {
-	return s.store.ListApplications()
-}
-
-func (s *Service) Logs(name string) []string {
-	return s.store.ListLogs(name)
-}
-
-func (s *Service) Action(name, action string) (string, bool) {
-	return s.store.ApplyAction(name, action)
-}
-
-func (s *Service) AllApplications(ctx context.Context) []model.Application {
+func (s *Service) Applications(ctx context.Context) []model.Application {
 	var apps []model.Application
 
 	if s.docker != nil && s.docker.Enabled() {
@@ -71,6 +59,14 @@ func (s *Service) AllApplications(ctx context.Context) []model.Application {
 	}
 
 	return apps
+}
+
+func (s *Service) Logs(name string) []string {
+	return s.store.ListLogs(name)
+}
+
+func (s *Service) Action(name, action string) (string, bool) {
+	return s.store.ApplyAction(name, action)
 }
 
 func buildMetrics(apps []model.Application) []model.MetricItem {

@@ -114,7 +114,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, model.APIResponse{
 		Code:    0,
 		Message: "ok",
-		Data:    s.service.Dashboard(),
+		Data:    s.service.Dashboard(r.Context()),
 	})
 }
 
@@ -127,7 +127,7 @@ func (s *Server) handleApplications(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, model.APIResponse{
 		Code:    0,
 		Message: "ok",
-		Data:    model.ListApplicationsResponse{Items: s.service.Applications()},
+		Data:    model.ListApplicationsResponse{Items: s.service.Applications(r.Context())},
 	})
 }
 

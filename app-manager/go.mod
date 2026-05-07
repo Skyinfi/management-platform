@@ -1,8 +1,6 @@
 module github.com/Skyinfi/management-platform/app-manager
 
-go 1.22.0
-
-toolchain go1.22.12
+go 1.25.0
 
 require (
 	github.com/docker/docker v27.5.1+incompatible
