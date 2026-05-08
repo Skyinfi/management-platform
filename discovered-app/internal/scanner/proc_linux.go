@@ -1,9 +1,10 @@
+//go:build linux
+
 package scanner
 
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"syscall"
 )
 
