@@ -11,15 +11,20 @@ import (
 )
 
 type Config struct {
-	Addr        string       `yaml:"addr"`
-	Env         string       `yaml:"env"`
-	LogLevel    string       `yaml:"log_level"`
-	EnableCORS  bool         `yaml:"enable_cors"`
-	JWTSecret   string       `yaml:"jwt_secret"`
-	AllowOrigin string       `yaml:"allow_origin"`
-	Docker      DockerConfig `yaml:"docker"`
-	Auth        AuthConfig   `yaml:"auth"`
-	Services    []ServiceDef `yaml:"services"`
+	Addr        string         `yaml:"addr"`
+	Env         string         `yaml:"env"`
+	LogLevel    string         `yaml:"log_level"`
+	EnableCORS  bool           `yaml:"enable_cors"`
+	JWTSecret   string         `yaml:"jwt_secret"`
+	AllowOrigin string         `yaml:"allow_origin"`
+	Docker      DockerConfig   `yaml:"docker"`
+	Auth        AuthConfig     `yaml:"auth"`
+	Scanner     ScannerConfig  `yaml:"scanner"`
+	Services    []ServiceDef   `yaml:"services"`
+}
+
+type ScannerConfig struct {
+	Addr string `yaml:"addr"`
 }
 
 type DockerConfig struct {
@@ -59,6 +64,9 @@ func Load() Config {
 			Username: "admin",
 			Password: "admin123",
 			TokenTTL: "24h",
+		},
+		Scanner: ScannerConfig{
+			Addr: "http://localhost:8081",
 		},
 		Services: []ServiceDef{
 			{Name: "order-service", Display: "订单服务", Type: "process", Unit: "order-service", Endpoint: "10.0.1.12:9001", Owner: "交易团队"},
@@ -124,6 +132,9 @@ func overrideFromEnv(cfg *Config) {
 	}
 	if v := getString("APP_MANAGER_AUTH_PASSWORD", ""); v != "" {
 		cfg.Auth.Password = v
+	}
+	if v := getString("APP_MANAGER_SCANNER_ADDR", ""); v != "" {
+		cfg.Scanner.Addr = v
 	}
 }
 

@@ -3,19 +3,13 @@ package service
 import (
 	"bufio"
 	"context"
-	"crypto/sha1"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
-	"os"
 	"os/exec"
-	"os/user"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/Skyinfi/management-platform/app-manager/internal/config"
@@ -24,16 +18,12 @@ import (
 
 type ProcessService struct {
 	services []config.ServiceDef
+	scanner  *ScannerClient
 	mu       sync.RWMutex
 }
 
-var (
-	ssPIDPattern  = regexp.MustCompile(`pid=(\d+)`)
-	ssNamePattern = regexp.MustCompile(`"([^"]+)"`)
-)
-
-func NewProcessService(services []config.ServiceDef) *ProcessService {
-	return &ProcessService{services: services}
+func NewProcessService(services []config.ServiceDef, scanner *ScannerClient) *ProcessService {
+	return &ProcessService{services: services, scanner: scanner}
 }
 
 func (p *ProcessService) ListServices(ctx context.Context) []model.ManagedService {
@@ -273,308 +263,34 @@ func (p *ProcessService) FindService(name string) (config.ServiceDef, bool) {
 }
 
 func (p *ProcessService) DiscoverListeningProcesses(ctx context.Context) ([]model.DiscoveredProcess, error) {
-	managedPIDs := map[int]bool{}
-	for _, svc := range p.ListServices(ctx) {
-		if svc.PID > 0 {
-			managedPIDs[svc.PID] = true
-		}
+	if p.scanner == nil {
+		return []model.DiscoveredProcess{}, nil
 	}
-
-	discovered := []model.DiscoveredProcess{}
-	if _, err := exec.LookPath("ss"); err == nil {
-		out, err := exec.CommandContext(ctx, "ss", "-H", "-ltnp").CombinedOutput()
-		if err != nil {
-			log.Printf("discover listening processes via ss failed: %v, output: %s", err, strings.TrimSpace(string(out)))
-		} else {
-			items := p.discoverFromSSOutput(string(out), managedPIDs)
-			log.Printf("discover listening processes via ss found %d items", len(items))
-			discovered = append(discovered, items...)
-		}
-	}
-
-	if _, err := exec.LookPath("sudo"); err == nil {
-		out, err := exec.CommandContext(ctx, "sudo", "-n", "ss", "-H", "-ltnp").CombinedOutput()
-		if err != nil {
-			log.Printf("discover listening processes via sudo ss failed: %v, output: %s", err, strings.TrimSpace(string(out)))
-		} else {
-			items := p.discoverFromSSOutput(string(out), managedPIDs)
-			log.Printf("discover listening processes via sudo ss found %d items", len(items))
-			discovered = append(discovered, items...)
-		}
-	}
-
-	if _, err := exec.LookPath("lsof"); err == nil {
-		out, err := exec.CommandContext(ctx, "lsof", "-nP", "-iTCP", "-sTCP:LISTEN").CombinedOutput()
-		if err != nil {
-			log.Printf("discover listening processes via lsof failed: %v, output: %s", err, strings.TrimSpace(string(out)))
-		} else {
-			items := p.discoverFromLSOFOutput(string(out), managedPIDs)
-			log.Printf("discover listening processes via lsof found %d items", len(items))
-			discovered = append(discovered, items...)
-		}
-	}
-
-	if _, err := exec.LookPath("sudo"); err == nil {
-		out, err := exec.CommandContext(ctx, "sudo", "-n", "lsof", "-nP", "-iTCP", "-sTCP:LISTEN").CombinedOutput()
-		if err != nil {
-			log.Printf("discover listening processes via sudo lsof failed: %v, output: %s", err, strings.TrimSpace(string(out)))
-		} else {
-			items := p.discoverFromLSOFOutput(string(out), managedPIDs)
-			log.Printf("discover listening processes via sudo lsof found %d items", len(items))
-			discovered = append(discovered, items...)
-		}
-	}
-
-	result := dedupeDiscoveredProcesses(discovered)
-	log.Printf("discover listening processes completed, total=%d", len(result))
-	return result, nil
-}
-
-func (p *ProcessService) discoverFromSSOutput(output string, managedPIDs map[int]bool) []model.DiscoveredProcess {
-	seen := map[string]bool{}
-	discovered := []model.DiscoveredProcess{}
-	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		item, ok := p.discoveredFromSSLine(line, managedPIDs)
-		if !ok {
-			continue
-		}
-		key := fmt.Sprintf("%d|%s", item.PID, item.Endpoint)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		discovered = append(discovered, item)
-	}
-
-	return discovered
-}
-
-func (p *ProcessService) discoverFromLSOFOutput(output string, managedPIDs map[int]bool) []model.DiscoveredProcess {
-	seen := map[string]bool{}
-	discovered := []model.DiscoveredProcess{}
-	for index, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || index == 0 {
-			continue
-		}
-
-		item, ok := p.discoveredFromLSOFLine(line, managedPIDs)
-		if !ok {
-			continue
-		}
-		key := fmt.Sprintf("%d|%s", item.PID, item.Endpoint)
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		discovered = append(discovered, item)
-	}
-
-	return discovered
-}
-
-func (p *ProcessService) discoveredFromSSLine(line string, managedPIDs map[int]bool) (model.DiscoveredProcess, bool) {
-	fields := strings.Fields(line)
-	if len(fields) < 4 {
-		return model.DiscoveredProcess{}, false
-	}
-
-	endpoint := fields[3]
-	pid := parseSSPID(line)
-	if pid <= 0 {
-		return model.DiscoveredProcess{
-			ID:        discoveryID(0, endpoint),
-			Name:      "unknown",
-			Endpoint:  endpoint,
-			Protocol:  "tcp",
-			Command:   "权限不足，无法读取进程信息",
-			Adoptable: false,
-		}, true
-	}
-
-	name := parseSSProcessName(line)
-	exePath := readProcLink(pid, "exe")
-	cwd := readProcLink(pid, "cwd")
-	command := readProcCmdline(pid)
-	inDocker := processInDocker(pid)
-
-	if name == "" {
-		name = processNameFromCommand(command, exePath)
-	}
-
-	id := discoveryID(pid, endpoint)
-	return model.DiscoveredProcess{
-		ID:        id,
-		Name:      name,
-		PID:       pid,
-		User:      processUser(pid),
-		Endpoint:  endpoint,
-		Protocol:  "tcp",
-		Command:   command,
-		ExePath:   exePath,
-		Cwd:       cwd,
-		Managed:   managedPIDs[pid],
-		InDocker:  inDocker,
-		Adoptable: isAdoptableProcess(managedPIDs[pid], inDocker, cwd, exePath, command),
-	}, true
-}
-
-func (p *ProcessService) discoveredFromLSOFLine(line string, managedPIDs map[int]bool) (model.DiscoveredProcess, bool) {
-	fields := strings.Fields(line)
-	if len(fields) < 9 {
-		return model.DiscoveredProcess{}, false
-	}
-
-	pid, err := strconv.Atoi(fields[1])
-	if err != nil || pid <= 0 {
-		return model.DiscoveredProcess{}, false
-	}
-
-	name := fields[0]
-	userName := fields[2]
-	endpoint := strings.Join(fields[8:], " ")
-	endpoint = strings.TrimSuffix(endpoint, " (LISTEN)")
-	exePath := readProcLink(pid, "exe")
-	cwd := readProcLink(pid, "cwd")
-	command := readProcCmdline(pid)
-	inDocker := processInDocker(pid)
-
-	if command == "" {
-		command = name
-	}
-
-	id := discoveryID(pid, endpoint)
-	return model.DiscoveredProcess{
-		ID:        id,
-		Name:      name,
-		PID:       pid,
-		User:      userName,
-		Endpoint:  endpoint,
-		Protocol:  "tcp",
-		Command:   command,
-		ExePath:   exePath,
-		Cwd:       cwd,
-		Managed:   managedPIDs[pid],
-		InDocker:  inDocker,
-		Adoptable: isAdoptableProcess(managedPIDs[pid], inDocker, cwd, exePath, command),
-	}, true
-}
-
-func dedupeDiscoveredProcesses(items []model.DiscoveredProcess) []model.DiscoveredProcess {
-	seen := map[string]bool{}
-	result := make([]model.DiscoveredProcess, 0, len(items))
-	for _, item := range items {
-		key := fmt.Sprintf("%d|%s", item.PID, item.Endpoint)
-		if item.PID == 0 {
-			key = item.Endpoint
-		}
-		if seen[key] {
-			continue
-		}
-		seen[key] = true
-		result = append(result, item)
-	}
-	return result
-}
-
-func isAdoptableProcess(managed, inDocker bool, cwd, exePath, command string) bool {
-	if managed || inDocker {
-		return false
-	}
-	return hasOptPath(cwd) || hasOptPath(exePath) || hasOptPath(command)
-}
-
-func hasOptPath(value string) bool {
-	return value == "/opt" ||
-		strings.HasPrefix(value, "/opt/") ||
-		strings.Contains(value, " /opt/") ||
-		strings.Contains(value, "=/opt/")
-}
-
-func parseSSPID(line string) int {
-	match := ssPIDPattern.FindStringSubmatch(line)
-	if len(match) != 2 {
-		return 0
-	}
-	pid, _ := strconv.Atoi(match[1])
-	return pid
-}
-
-func parseSSProcessName(line string) string {
-	match := ssNamePattern.FindStringSubmatch(line)
-	if len(match) != 2 {
-		return ""
-	}
-	return match[1]
-}
-
-func readProcLink(pid int, name string) string {
-	value, err := os.Readlink(fmt.Sprintf("/proc/%d/%s", pid, name))
+	apps, err := p.scanner.GetApps(ctx)
 	if err != nil {
-		return ""
+		return nil, fmt.Errorf("scanner get apps: %w", err)
 	}
-	return value
+	log.Printf("discover listening processes via scanner agent completed, total=%d", len(apps))
+	return apps, nil
 }
 
-func readProcCmdline(pid int) string {
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cmdline", pid))
+func (p *ProcessService) TriggerScan(ctx context.Context) ([]model.DiscoveredProcess, error) {
+	if p.scanner == nil {
+		return nil, fmt.Errorf("scanner agent not configured")
+	}
+	apps, err := p.scanner.RunScan(ctx)
 	if err != nil {
-		return ""
+		return nil, fmt.Errorf("scanner run scan: %w", err)
 	}
-	parts := strings.Split(strings.TrimRight(string(data), "\x00"), "\x00")
-	return strings.Join(parts, " ")
+	log.Printf("triggered scan via scanner agent, discovered=%d", len(apps))
+	return apps, nil
 }
 
-func processNameFromCommand(command, exePath string) string {
-	if command != "" {
-		fields := strings.Fields(command)
-		if len(fields) > 0 {
-			return fields[0]
-		}
+func (p *ProcessService) WatchDiscoveredApp(ctx context.Context, pid int) (bool, string, error) {
+	if p.scanner == nil {
+		return false, "", fmt.Errorf("scanner agent not configured")
 	}
-	if exePath != "" {
-		parts := strings.Split(strings.TrimRight(exePath, "/"), "/")
-		return parts[len(parts)-1]
-	}
-	return "unknown"
-}
-
-func processInDocker(pid int) bool {
-	data, err := os.ReadFile(fmt.Sprintf("/proc/%d/cgroup", pid))
-	if err != nil {
-		return false
-	}
-	value := string(data)
-	return strings.Contains(value, "docker") ||
-		strings.Contains(value, "containerd") ||
-		strings.Contains(value, "kubepods")
-}
-
-func processUser(pid int) string {
-	info, err := os.Stat(fmt.Sprintf("/proc/%d", pid))
-	if err != nil {
-		return ""
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return ""
-	}
-	uid := strconv.FormatUint(uint64(stat.Uid), 10)
-	u, err := user.LookupId(uid)
-	if err != nil {
-		return uid
-	}
-	return u.Username
-}
-
-func discoveryID(pid int, endpoint string) string {
-	sum := sha1.Sum([]byte(fmt.Sprintf("%d|%s", pid, endpoint)))
-	return hex.EncodeToString(sum[:8])
+	return p.scanner.WatchApp(ctx, pid)
 }
 
 func (p *ProcessService) Applications(ctx context.Context) []model.Application {

@@ -84,6 +84,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/docker/images", s.handleDockerImages)
 
 	s.mux.HandleFunc("/api/process/discovered", s.handleDiscoveredProcesses)
+	s.mux.HandleFunc("/api/process/discovered/scan", s.handleTriggerScan)
+	s.mux.HandleFunc("/api/process/discovered/", s.handleDiscoveredAction)
 	s.mux.HandleFunc("/api/process/services", s.handleProcessServices)
 	s.mux.HandleFunc("/api/process/services/", s.handleProcessServiceAction)
 
@@ -324,6 +326,67 @@ func (s *Server) handleDiscoveredProcesses(w http.ResponseWriter, r *http.Reques
 		Code:    0,
 		Message: "ok",
 		Data:    model.DiscoveredProcessListResponse{Items: processes},
+	})
+}
+
+func (s *Server) handleTriggerScan(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, model.APIResponse{Code: 405, Message: "method not allowed"})
+		return
+	}
+
+	processes, err := s.process.TriggerScan(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, model.APIResponse{Code: 500, Message: err.Error()})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, model.APIResponse{
+		Code:    0,
+		Message: "ok",
+		Data:    model.DiscoveredProcessListResponse{Items: processes},
+	})
+}
+
+func (s *Server) handleDiscoveredAction(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/process/discovered/")
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) < 2 {
+		writeJSON(w, http.StatusNotFound, model.APIResponse{Code: 404, Message: "not found"})
+		return
+	}
+
+	pid, err := strconv.Atoi(parts[0])
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, model.APIResponse{Code: 400, Message: "invalid pid"})
+		return
+	}
+
+	action := parts[1]
+	if action != "watch" {
+		writeJSON(w, http.StatusBadRequest, model.APIResponse{Code: 400, Message: "unsupported action: " + action})
+		return
+	}
+
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, model.APIResponse{Code: 405, Message: "method not allowed"})
+		return
+	}
+
+	ok, msg, err := s.process.WatchDiscoveredApp(r.Context(), pid)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, model.APIResponse{Code: 500, Message: err.Error()})
+		return
+	}
+	if !ok {
+		writeJSON(w, http.StatusNotFound, model.APIResponse{Code: 404, Message: "app not found"})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, model.APIResponse{
+		Code:    0,
+		Message: "ok",
+		Data:    model.AppActionResponse{Success: true, Message: msg},
 	})
 }
 

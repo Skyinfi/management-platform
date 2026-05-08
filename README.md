@@ -1,14 +1,15 @@
 # 应用管理平台（App Management Platform）
 
-单仓库包含 **Go 后端**（`app-manager`）与 **React + Vite 前端**（`manager-frontend-app`），用于在服务器上统一管理 Docker 与进程类应用。详细架构见仓库内 [`app-management-platform.md`](./app-management-platform.md)。
+单仓库包含 **Go 后端**（`app-manager`）、**宿主机扫描 Agent**（`discovered-app`）与 **React + Vite 前端**（`manager-frontend-app`），用于在服务器上统一管理 Docker、进程类应用以及宿主机野生进程。详细架构见仓库内 [`app-management-platform.md`](./app-management-platform.md)。
 
 ## 仓库结构
 
 | 路径 | 说明 |
 |------|------|
 | `app-manager/` | Go API 服务（默认 `:8080`） |
+| `discovered-app/` | 宿主机扫描 Agent（默认 `:8081`），发现未被 systemd/docker 管理的野生进程 |
 | `manager-frontend-app/` | 管理端 Web UI（Vite 开发服务器默认 `:5173`） |
-| `scripts/` | 本地开发辅助脚本（PowerShell） |
+| `scripts/` | 本地开发辅助脚本（PowerShell）与 systemd 服务文件 |
 | `package.json` | 根目录脚本入口（一键起停开发环境） |
 
 ## 环境要求
@@ -63,6 +64,43 @@ npm run dev
 | `APP_MANAGER_ENABLE_CORS` | 是否启用 CORS | `true` |
 | `APP_MANAGER_JWT_SECRET` | JWT 密钥 | `dev-secret`（**生产务必修改**） |
 | `APP_MANAGER_ALLOW_ORIGIN` | CORS 允许的 Origin | `*` |
+| `APP_MANAGER_SCANNER_ADDR` | 扫描 Agent 地址 | `http://localhost:8081` |
+
+## 扫描 Agent（discovered-app）
+
+宿主机扫描 Agent 独立运行，通过读取 `/proc` 文件系统发现未被 systemd/docker 管理的野生进程（如 nohup、screen、手动启动的 Java JAR / Python / Node.js 等），`app-manager` 通过 HTTP 调用其 API 获取扫描结果。
+
+### 环境变量
+
+| 变量 | 说明 | 默认值 |
+|------|------|--------|
+| `SCANNER_ADDR` | 监听地址 | `:8081` |
+| `PROC_ROOT` | proc 文件系统路径 | `/proc`（容器部署时改为 `/host/proc`） |
+| `SCANNER_INTERVAL` | 定时扫描间隔 | `60s` |
+
+### 快速启动（本地开发）
+
+```bash
+cd discovered-app
+go run ./main.go
+```
+
+### 编译
+
+```bash
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
+  go build -ldflags="-s -w" -o discovered-app/discovered-app ./discovered-app/main.go
+```
+
+### 部署
+
+详细安装方式（systemd / Docker / docker-compose）见 [`discovered-app/INSTALL.md`](discovered-app/INSTALL.md)。
+
+一键编译部署到目标服务器：
+
+```bash
+make deploy-scanner DEPLOY_HOST=user@your-server
+```
 
 ## 构建
 
@@ -219,6 +257,7 @@ Caddy 会自动申请并续期 Let's Encrypt 证书，确保服务器 80、443 �
 | 80 | frontend | Nginx/Caddy 前端 |
 | 443 | frontend | Caddy HTTPS（仅 Caddy） |
 | 8080 | backend | Go API 服务 |
+| 8081 | scanner | 宿主机扫描 Agent（仅内网/localhost） |
 
 ### 注意事项
 

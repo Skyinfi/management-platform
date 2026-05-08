@@ -1,0 +1,17 @@
+[Unit]
+Description=Discovered App Scanner Agent
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/discovered-app
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+
+Environment=SCANNER_ADDR=:8081
+Environment=PROC_ROOT=/proc
+Environment=SCANNER_INTERVAL=60s
+
+[Install]
+WantedBy=multi-user.target

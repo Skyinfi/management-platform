@@ -156,3 +156,26 @@ visudo
 # app-manager ALL=(root) NOPASSWD: /bin/systemctl start order-service, /bin/systemctl stop order-service, /bin/systemctl restart order-service
 # app-manager ALL=(root) NOPASSWD: /usr/bin/journalctl -u order-service *
 ```
+
+## 宿主机扫描 Agent（discovered-app）
+
+`discovered-app` 是独立的扫描 Agent，用于发现宿主机上未被 systemd/docker 管理的野生进程。
+
+详细安装方式见 [`discovered-app/INSTALL.md`](discovered-app/INSTALL.md)。
+
+快速部署（systemd）：
+
+```bash
+# 编译
+make build-scanner
+
+# 一键部署到目标服务器
+make deploy-scanner DEPLOY_HOST=user@your-server
+```
+
+部署后在 `app-manager` 的 `config.yaml` 中配置 scanner 地址：
+
+```yaml
+scanner:
+  addr: http://localhost:8081
+```

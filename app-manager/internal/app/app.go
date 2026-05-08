@@ -20,7 +20,8 @@ func Bootstrap(cfg config.Config) Dependencies {
 	st := store.Default()
 	auth := service.NewAuth(cfg)
 	dockerSvc := service.NewDockerService(cfg.Docker)
-	processSvc := service.NewProcessService(cfg.Services)
+	scannerClient := service.NewScannerClient(cfg.Scanner.Addr)
+	processSvc := service.NewProcessService(cfg.Services, scannerClient)
 	audit := service.NewAuditLog()
 	svc := service.New(st,
 		service.WithDocker(dockerSvc),
