@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"os/user"
@@ -282,33 +283,51 @@ func (p *ProcessService) DiscoverListeningProcesses(ctx context.Context) ([]mode
 	discovered := []model.DiscoveredProcess{}
 	if _, err := exec.LookPath("ss"); err == nil {
 		out, err := exec.CommandContext(ctx, "ss", "-H", "-ltnp").CombinedOutput()
-		if err == nil {
-			discovered = append(discovered, p.discoverFromSSOutput(string(out), managedPIDs)...)
+		if err != nil {
+			log.Printf("discover listening processes via ss failed: %v, output: %s", err, strings.TrimSpace(string(out)))
+		} else {
+			items := p.discoverFromSSOutput(string(out), managedPIDs)
+			log.Printf("discover listening processes via ss found %d items", len(items))
+			discovered = append(discovered, items...)
 		}
 	}
 
 	if _, err := exec.LookPath("sudo"); err == nil {
 		out, err := exec.CommandContext(ctx, "sudo", "-n", "ss", "-H", "-ltnp").CombinedOutput()
-		if err == nil {
-			discovered = append(discovered, p.discoverFromSSOutput(string(out), managedPIDs)...)
+		if err != nil {
+			log.Printf("discover listening processes via sudo ss failed: %v, output: %s", err, strings.TrimSpace(string(out)))
+		} else {
+			items := p.discoverFromSSOutput(string(out), managedPIDs)
+			log.Printf("discover listening processes via sudo ss found %d items", len(items))
+			discovered = append(discovered, items...)
 		}
 	}
 
 	if _, err := exec.LookPath("lsof"); err == nil {
 		out, err := exec.CommandContext(ctx, "lsof", "-nP", "-iTCP", "-sTCP:LISTEN").CombinedOutput()
-		if err == nil {
-			discovered = append(discovered, p.discoverFromLSOFOutput(string(out), managedPIDs)...)
+		if err != nil {
+			log.Printf("discover listening processes via lsof failed: %v, output: %s", err, strings.TrimSpace(string(out)))
+		} else {
+			items := p.discoverFromLSOFOutput(string(out), managedPIDs)
+			log.Printf("discover listening processes via lsof found %d items", len(items))
+			discovered = append(discovered, items...)
 		}
 	}
 
 	if _, err := exec.LookPath("sudo"); err == nil {
 		out, err := exec.CommandContext(ctx, "sudo", "-n", "lsof", "-nP", "-iTCP", "-sTCP:LISTEN").CombinedOutput()
-		if err == nil {
-			discovered = append(discovered, p.discoverFromLSOFOutput(string(out), managedPIDs)...)
+		if err != nil {
+			log.Printf("discover listening processes via sudo lsof failed: %v, output: %s", err, strings.TrimSpace(string(out)))
+		} else {
+			items := p.discoverFromLSOFOutput(string(out), managedPIDs)
+			log.Printf("discover listening processes via sudo lsof found %d items", len(items))
+			discovered = append(discovered, items...)
 		}
 	}
 
-	return dedupeDiscoveredProcesses(discovered), nil
+	result := dedupeDiscoveredProcesses(discovered)
+	log.Printf("discover listening processes completed, total=%d", len(result))
+	return result, nil
 }
 
 func (p *ProcessService) discoverFromSSOutput(output string, managedPIDs map[int]bool) []model.DiscoveredProcess {
